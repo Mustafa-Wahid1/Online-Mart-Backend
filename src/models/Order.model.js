@@ -39,6 +39,14 @@ const orderAddressSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const orderEventSchema = new mongoose.Schema(
+  {
+    at: { type: Date, default: Date.now },
+    text: { type: String, required: true },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     orderNumber: {
@@ -67,9 +75,20 @@ const orderSchema = new mongoose.Schema(
       type: orderAddressSchema,
       default: null,
     },
+    /** Kept for old orders / emails. Mirrors scheduledAt for PICKUP orders. */
     pickupScheduledAt: {
       type: Date,
       default: null,
+    },
+    /** Customer-chosen time slot — required for BOTH delivery and pickup. */
+    scheduledAt: {
+      type: Date,
+      default: null,
+    },
+    /** Timeline shown to admin ("Order events"). */
+    events: {
+      type: [orderEventSchema],
+      default: [],
     },
     status: {
       type: String,

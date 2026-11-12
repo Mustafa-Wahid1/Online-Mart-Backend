@@ -50,8 +50,32 @@ const listAdmin = async (query = {}) => {
   }
   if (query.deliveryType) filter.deliveryType = query.deliveryType;
 
+  // Search by order number OR customer name/email
+  const searchTerm = query.q || query.search;
+  if (searchTerm && String(searchTerm).trim()) {
+    const q = String(searchTerm).trim();
+    const User = require('../../models/User.model');
+    const users = await User.find({
+      $or: [
+        { name: new RegExp(q, 'i') },
+        { email: new RegExp(q, 'i') },
+      ],
+    })
+      .select('_id')
+      .lean();
+    const userIds = users.map((u) => u._id);
+    filter.$or = [
+      { orderNumber: new RegExp(q, 'i') },
+      ...(userIds.length ? [{ userId: { $in: userIds } }] : []),
+    ];
+  }
+
   const [data, total] = await Promise.all([
-    Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Order.find(filter)
+      .populate('userId', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
     Order.countDocuments(filter),
   ]);
 
@@ -65,9 +89,53 @@ const listAdmin = async (query = {}) => {
  * Admin order detail.
  */
 const getAdminById = async (orderId) => {
-  const order = await Order.findById(orderId);
+  const order = await Order.findById(orderId).populate('userId', 'name email');
   if (!order) throw new AppError('Order not found', 404);
   return await formatOrder(order);
+};
+
+/**
+ * Public order tracking — orderNumber + customer email must match.
+ * Returns limited safe fields only.
+ */
+const trackByNumberAndEmail = async (orderNumber, email) => {
+  const number = String(orderNumber || '').trim();
+  const addr = String(email || '').trim().toLowerCase();
+  if (!number || !addr) {
+    throw new AppError('Order ID and email are required', 400, 'VALIDATION_ERROR');
+  }
+
+  const order = await Order.findOne({ orderNumber: number }).populate('userId', 'name email');
+  if (!order) {
+    throw new AppError('No order found for that ID and email', 404, 'ORDER_NOT_FOUND');
+  }
+
+  const ownerEmail = order.userId && order.userId.email
+    ? String(order.userId.email).toLowerCase()
+    : '';
+  if (!ownerEmail || ownerEmail !== addr) {
+    throw new AppError('No order found for that ID and email', 404, 'ORDER_NOT_FOUND');
+  }
+
+  const full = await formatOrder(order);
+  return {
+    id: full.id,
+    orderNumber: full.orderNumber,
+    status: full.status,
+    paymentStatus: full.paymentStatus,
+    deliveryType: full.deliveryType,
+    items: full.items.map((i) => ({
+      name: i.name,
+      quantity: i.quantity,
+      imageUrl: i.imageUrl || '',
+    })),
+    total: full.total,
+    scheduledAt: order.scheduledAt || order.pickupScheduledAt || null,
+    estimatedDelivery: order.scheduledAt || order.pickupScheduledAt || null,
+    events: full.events,
+    createdAt: full.createdAt,
+    updatedAt: full.updatedAt,
+  };
 };
 
 module.exports = {
@@ -75,4 +143,5 @@ module.exports = {
   getMineById,
   listAdmin,
   getAdminById,
+  trackByNumberAndEmail,
 };

@@ -39,7 +39,7 @@ const getProductImagesMap = async (productIds) => {
  * images (optional): pre-loaded [{ id, url }] from getProductImagesMap.
  * When omitted, the product's images are fetched here (single product).
  */
-const formatProduct = async (p, inventory = null, images = undefined) => {
+const formatProduct = async (p, inventory = null, images = undefined, categoryName = undefined) => {
   const obj = p.toObject ? p.toObject() : { ...p };
   // Images come only from Image collection
   let imageList = images;
@@ -48,12 +48,26 @@ const formatProduct = async (p, inventory = null, images = undefined) => {
     imageList = map.get(String(obj._id)) || [];
   }
   const urls = imageList.map((i) => i.url);
+
+  // Resolve category name if not preloaded
+  let catName = categoryName;
+  if (catName === undefined && obj.categoryId) {
+    const cat =
+      typeof obj.categoryId === 'object' && obj.categoryId.name
+        ? obj.categoryId
+        : await Category.findById(obj.categoryId).select('name').lean();
+    catName = cat ? cat.name : '';
+  }
+
   const result = {
     id: obj._id.toString(),
     name: obj.name,
     slug: obj.slug,
     sku: obj.sku,
-    categoryId: obj.categoryId ? obj.categoryId.toString() : null,
+    categoryId: obj.categoryId
+      ? (obj.categoryId._id ? obj.categoryId._id.toString() : obj.categoryId.toString())
+      : null,
+    categoryName: catName || '',
     description: obj.description || '',
     price: moneyToString(obj.price),
     unit: obj.unit || 'each',
@@ -170,13 +184,23 @@ const listPublic = async (query = {}) => {
 
   const imageMap = await getProductImagesMap(productIds);
 
+  const categoryIds = [...new Set(data.map((p) => p.categoryId).filter(Boolean))];
+  const categories = categoryIds.length
+    ? await Category.find({ _id: { $in: categoryIds } }).select('name').lean()
+    : [];
+  const catNameMap = {};
+  categories.forEach((c) => {
+    catNameMap[c._id.toString()] = c.name;
+  });
+
   return {
     data: await Promise.all(
       data.map((p) =>
         formatProduct(
           p,
           invMap[p._id.toString()] || null,
-          imageMap.get(p._id.toString()) || []
+          imageMap.get(p._id.toString()) || [],
+          catNameMap[p.categoryId ? p.categoryId.toString() : ''] || ''
         )
       )
     ),
@@ -230,13 +254,23 @@ const listAdmin = async (query = {}) => {
 
   const imageMap = await getProductImagesMap(productIds);
 
+  const categoryIds = [...new Set(data.map((p) => p.categoryId).filter(Boolean))];
+  const categories = categoryIds.length
+    ? await Category.find({ _id: { $in: categoryIds } }).select('name').lean()
+    : [];
+  const catNameMap = {};
+  categories.forEach((c) => {
+    catNameMap[c._id.toString()] = c.name;
+  });
+
   return {
     data: await Promise.all(
       data.map((p) =>
         formatProduct(
           p,
           invMap[p._id.toString()] || null,
-          imageMap.get(p._id.toString()) || []
+          imageMap.get(p._id.toString()) || [],
+          catNameMap[p.categoryId ? p.categoryId.toString() : ''] || ''
         )
       )
     ),

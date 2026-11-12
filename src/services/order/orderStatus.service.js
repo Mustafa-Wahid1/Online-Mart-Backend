@@ -4,6 +4,7 @@ const Order = require('../../models/Order.model');
 const AppError = require('../../utils/AppError');
 const { formatOrder } = require('./orderCreation.service');
 const { onOrderStatus } = require('../notification.triggers');
+const { addEvent, STATUS_TEXT } = require('../../utils/orderEvents');
 
 /**
  * Allowed status transitions (exact map from prompt):
@@ -55,6 +56,7 @@ const updateStatus = async (orderId, newStatus) => {
   }
 
   order.status = newStatus;
+  addEvent(order, STATUS_TEXT[newStatus] || `Status changed to ${newStatus}`);
   await order.save();
   await onOrderStatus(order, newStatus);
   return await formatOrder(order);
@@ -71,6 +73,7 @@ const confirmAfterPayment = async (orderId, session = null) => {
   if (order.status === 'PENDING') {
     order.status = 'CONFIRMED';
     order.paymentStatus = 'PAID';
+    addEvent(order, STATUS_TEXT.CONFIRMED);
     await order.save(opts);
   }
   // If already CONFIRMED/PAID — idempotent no-op

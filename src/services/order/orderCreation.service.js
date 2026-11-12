@@ -3,6 +3,7 @@
 const mongoose = require('mongoose');
 const Order = require('../../models/Order.model');
 const Address = require('../../models/Address.model');
+const User = require('../../models/User.model');
 const Product = require('../../models/Product.model');
 const Counter = require('../../models/Counter.model');
 const cartService = require('../cart.service');
@@ -11,6 +12,7 @@ const AppError = require('../../utils/AppError');
 const { multiply, add, toString: moneyToString } = require('../../utils/money');
 const { getMainImageMap, getMainImageUrl } = require('../../utils/productImages');
 const { flushStockChanges, onOrderPlaced, onProcessingError } = require('../notification.triggers');
+const { addEvent, STATUS_TEXT } = require('../../utils/orderEvents');
 
 const PAYMENT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -174,6 +176,7 @@ const createOrder = async (userId, body) => {
           shippingFee,
           total,
           paymentExpiresAt: new Date(now.getTime() + PAYMENT_WINDOW_MS),
+          events: [{ at: now, text: STATUS_TEXT.PENDING }],
         },
       ],
       { session }
@@ -355,6 +358,7 @@ const createOrderV2 = async (userId, body) => {
           shippingFee,
           total,
           paymentExpiresAt: new Date(now.getTime() + PAYMENT_WINDOW_MS),
+          events: [{ at: now, text: STATUS_TEXT.PENDING }],
         },
       ],
       { session }
@@ -428,10 +432,27 @@ const formatOrder = async (order) => {
     }
   }
 
+  // Resolve customer display name (populated user or lookup)
+  let customerName = '';
+  let customerEmail = '';
+  const uid = obj.userId;
+  if (uid && typeof uid === 'object' && (uid.name || uid.email)) {
+    customerName = uid.name || '';
+    customerEmail = uid.email || '';
+  } else if (uid) {
+    const user = await User.findById(uid).select('name email').lean();
+    if (user) {
+      customerName = user.name || '';
+      customerEmail = user.email || '';
+    }
+  }
+
   return {
     id: obj._id.toString(),
     orderNumber: obj.orderNumber,
-    userId: obj.userId.toString(),
+    userId: (uid && uid._id ? uid._id : uid).toString(),
+    customerName,
+    customerEmail,
     items: items.map((i) => ({
       productId: i.productId.toString(),
       name: i.name,
@@ -455,8 +476,42 @@ const formatOrder = async (order) => {
     cancelledBy: obj.cancelledBy,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
+    events: (Array.isArray(obj.events) && obj.events.length
+      ? obj.events
+      : buildFallbackEvents(obj)
+    ).map((e) => ({
+      at: e.at ? new Date(e.at).toISOString() : null,
+      text: e.text || '',
+    })),
   };
 };
+
+/** For older orders that never stored events — still show a useful timeline. */
+function buildFallbackEvents(obj) {
+  const out = [];
+  const created = obj.createdAt ? new Date(obj.createdAt) : new Date();
+  out.push({ at: created, text: STATUS_TEXT.PENDING });
+  const flow = ['CONFIRMED', 'PROCESSING', 'READY_FOR_PICKUP', 'READY_FOR_DELIVERY', 'DELIVERED'];
+  const status = obj.status;
+  if (status === 'CANCELLED' || status === 'REFUND_PENDING') {
+    out.push({
+      at: obj.cancelledAt ? new Date(obj.cancelledAt) : created,
+      text: status === 'REFUND_PENDING' ? STATUS_TEXT.REFUND_PENDING : STATUS_TEXT.CANCELLED,
+    });
+    return out;
+  }
+  const idx = flow.indexOf(status);
+  if (idx >= 0) {
+    for (let i = 0; i <= idx; i++) {
+      const s = flow[i];
+      // Skip pickup/delivery ready that doesn't match type
+      if (s === 'READY_FOR_PICKUP' && obj.deliveryType === 'DELIVERY') continue;
+      if (s === 'READY_FOR_DELIVERY' && obj.deliveryType === 'PICKUP') continue;
+      if (STATUS_TEXT[s]) out.push({ at: obj.updatedAt ? new Date(obj.updatedAt) : created, text: STATUS_TEXT[s] });
+    }
+  }
+  return out;
+}
 
 module.exports = {
   createOrder: createOrderV2,

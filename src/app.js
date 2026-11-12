@@ -29,6 +29,9 @@ const paymentRoutes = require("./routes/payment.routes");
 const webhookRoutes = require("./routes/webhook.routes");
 const adminRoutes = require("./routes/admin.routes");
 const notificationRoutes = require("./routes/notification.routes");
+const contactRoutes = require("./routes/contact.routes");
+const faqRoutes = require("./routes/faq.routes");
+const returnRoutes = require("./routes/return.routes");
 
 const app = express();
 
@@ -114,6 +117,9 @@ app.use(`${prefix}/wishlist`, wishlistRoutes);
 app.use(`${prefix}/orders`, orderRoutes);
 app.use(`${prefix}/payments`, paymentRoutes);
 app.use(`${prefix}/notifications`, notificationRoutes);
+app.use(`${prefix}/contact`, contactRoutes);
+app.use(`${prefix}/faqs`, faqRoutes);
+app.use(`${prefix}/returns`, returnRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

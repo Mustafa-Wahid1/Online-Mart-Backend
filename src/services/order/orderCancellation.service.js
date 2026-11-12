@@ -7,6 +7,7 @@ const inventoryService = require('../inventory.service');
 const AppError = require('../../utils/AppError');
 const { formatOrder } = require('./orderCreation.service');
 const logger = require('../../utils/logger');
+const { addEvent } = require('../../utils/orderEvents');
 const { flushStockChanges, onOrderCancelled, onProcessingError } = require('../notification.triggers');
 
 /**
@@ -93,6 +94,13 @@ const cancelInTx = async ({
     order.cancelReason = reason || (cancelledBy === 'PAYMENT_TIMEOUT' ? 'Payment timeout' : 'Cancelled');
     order.cancelledBy = cancelledBy;
 
+    {
+      const who = { CUSTOMER: 'customer', ADMIN: 'admin', PAYMENT_TIMEOUT: 'payment timeout', SYSTEM: 'system' }[cancelledBy] || cancelledBy;
+      addEvent(
+        order,
+        `${wasPaid ? 'Order cancelled — refund in progress' : 'Order cancelled'} by ${who}${order.cancelReason ? ` (${order.cancelReason})` : ''}`
+      );
+    }
     await order.save({ session });
 
     // Restore stock

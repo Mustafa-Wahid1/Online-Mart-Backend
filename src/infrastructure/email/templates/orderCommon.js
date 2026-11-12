@@ -23,7 +23,10 @@ const addressLine = (a) =>
 
 const fulfilmentRows = (order) =>
   order.deliveryType === 'PICKUP'
-    ? [['Pickup', 'In store'], ['Pickup time', order.pickupScheduledAt ? fmtDate(order.pickupScheduledAt) : '']]
-    : [['Delivery to', addressLine(order.address)]];
+    ? [['Pickup', 'In store'], ['Pickup time', order.scheduledAt || order.pickupScheduledAt ? fmtDate(order.scheduledAt || order.pickupScheduledAt) : '']]
+    : [
+        ['Delivery to', addressLine(order.address)],
+        ['Delivery time', order.scheduledAt ? fmtDate(order.scheduledAt) : ''],
+      ];
 
 module.exports = { itemsBlock, totalsBlock, fulfilmentRows, addressLine };

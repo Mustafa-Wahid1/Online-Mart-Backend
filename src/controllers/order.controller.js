@@ -94,6 +94,15 @@ const cancelAdmin = async (req, res, next) => {
   }
 };
 
+const track = async (req, res, next) => {
+  try {
+    const data = await orderQuery.trackByNumberAndEmail(req.query.orderId, req.query.email);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   create,
   listMine,
@@ -103,4 +112,5 @@ module.exports = {
   getAdminById,
   updateStatus,
   cancelAdmin,
+  track,
 };

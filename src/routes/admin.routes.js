@@ -48,6 +48,18 @@ router.delete(
   uploadController.deleteImage
 );
 
+// ── Contact Messages ────────────────────────────────────────
+const contactRoutes = require("./contact.routes");
+router.use("/contact-messages", contactRoutes.admin);
+
+// ── Returns ─────────────────────────────────────────────────
+const returnRoutes = require("./return.routes");
+router.use("/returns", returnRoutes.admin);
+
+// ── FAQs ────────────────────────────────────────────────────
+const faqRoutes = require("./faq.routes");
+router.use("/faqs", faqRoutes.admin);
+
 // Placeholder for remaining modules
 router.use((req, res) => {
   res.status(501).json({

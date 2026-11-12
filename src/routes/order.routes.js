@@ -10,6 +10,17 @@ const validate = require('../middlewares/validate.middleware');
 const { requireCustomer, requireAdmin } = require('../middlewares/roles.middleware');
 const { orderLimiter } = require('../middlewares/rateLimit.middleware');
 
+// ── Public tracking ─────────────────────────────────────────
+router.get(
+  '/track',
+  [
+    query('orderId').trim().notEmpty().withMessage('Order ID is required'),
+    query('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+  ],
+  validate,
+  orderController.track
+);
+
 // ── Customer ────────────────────────────────────────────────
 router.post(
   '/',
@@ -77,6 +88,8 @@ adminRouter.get(
     query('userId').optional().isMongoId(),
     query('orderNumber').optional().isString(),
     query('deliveryType').optional().isIn(['DELIVERY', 'PICKUP']),
+    query('search').optional().isString(),
+    query('q').optional().isString(),
   ],
   validate,
   orderController.listAdmin
