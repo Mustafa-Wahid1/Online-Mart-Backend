@@ -405,6 +405,43 @@ const releaseForOrderInTx = async ({ orderId, session }) => {
 };
 
 /**
+ * Internal: put returned stock back on the shelf (customer return path).
+ * Must be called inside an existing session. Caller flushes stock notifications after commit.
+ */
+const restockInTx = async ({ productId, quantity, orderId, session, reason = 'Customer return' }) => {
+  const qty = Math.floor(Number(quantity));
+  if (!(qty > 0)) return null;
+
+  const inventory = await Inventory.findOne({ productId }).session(session);
+  if (!inventory) return null;
+
+  const qtyBefore = inventory.qtyOnHand;
+  const qtyAfter = qtyBefore + qty;
+  inventory.qtyOnHand = qtyAfter;
+  inventory.recalculateStatus();
+  await inventory.save({ session });
+  queueStockChange(session, inventory, { qtyBefore });
+
+  await InventoryTransaction.create(
+    [
+      {
+        productId,
+        inventoryId: inventory._id,
+        type: 'ADJUSTMENT_RESTOCK',
+        quantity: qty,
+        qtyBefore,
+        qtyAfter,
+        reason,
+        referenceType: 'ORDER',
+        referenceId: orderId,
+      },
+    ],
+    { session }
+  );
+  return inventory;
+};
+
+/**
  * List transactions for an inventory record.
  */
 const listTransactions = async (inventoryId, query = {}) => {
@@ -478,6 +515,7 @@ module.exports = {
   adjust,
   consumeInTx,
   releaseForOrderInTx,
+  restockInTx,
   listTransactions,
   listRecentTransactions,
   updateThreshold,

@@ -95,6 +95,8 @@ adminRouter.get(
   orderController.listAdmin
 );
 
+adminRouter.get('/status-counts', orderController.statusCounts);
+
 adminRouter.get(
   '/:id',
   [param('id').isMongoId().withMessage('Invalid order id')],

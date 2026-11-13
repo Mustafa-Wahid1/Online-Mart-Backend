@@ -96,28 +96,47 @@ const removeCategoryImages = async (categoryId, { exceptImageId = null } = {}) =
 /**
  * Public list: active categories only, optionally nested.
  */
+/**
+ * Public category list — flat array with productCount + childCount.
+ * Frontend expects CategoryRow[] (id, parentId, depth, productCount, …), not a tree.
+ */
 const listPublic = async () => {
   const categories = await Category.find({ isActive: true })
     .sort({ name: 1 })
     .lean();
 
-  const imageMap = await getImageUrlMap(categories.map((c) => c._id));
-  const fmt = (c) => format(c, imageMap.get(c._id.toString()) || '');
+  if (!categories.length) return [];
 
-  const roots = categories.filter((c) => !c.parentId);
-  const childrenMap = {};
-  for (const c of categories) {
-    if (c.parentId) {
-      const pid = c.parentId.toString();
-      if (!childrenMap[pid]) childrenMap[pid] = [];
-      childrenMap[pid].push(fmt(c));
-    }
-  }
+  const ids = categories.map((c) => c._id);
 
-  return roots.map((r) => ({
-    ...fmt(r),
-    children: childrenMap[r._id.toString()] || [],
-  }));
+  const [imageMap, productCounts, childCounts] = await Promise.all([
+    getImageUrlMap(ids),
+    // Active products per category (one aggregation, no N+1)
+    Product.aggregate([
+      { $match: { categoryId: { $in: ids }, isActive: true } },
+      { $group: { _id: '$categoryId', count: { $sum: 1 } } },
+    ]),
+    Category.aggregate([
+      { $match: { parentId: { $in: ids }, isActive: true } },
+      { $group: { _id: '$parentId', count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const productCountMap = new Map(
+    productCounts.map((r) => [String(r._id), r.count]),
+  );
+  const childCountMap = new Map(
+    childCounts.map((r) => [String(r._id), r.count]),
+  );
+
+  return categories.map((c) => {
+    const id = c._id.toString();
+    return {
+      ...format(c, imageMap.get(id) || ''),
+      productCount: productCountMap.get(id) || 0,
+      childCount: childCountMap.get(id) || 0,
+    };
+  });
 };
 
 /**
@@ -143,10 +162,39 @@ const listAdmin = async (query = {}) => {
     Category.countDocuments(filter),
   ]);
 
-  const imageMap = await getImageUrlMap(data.map((c) => c._id));
+  const ids = data.map((c) => c._id);
+  const [imageMap, productCounts, childCounts] = await Promise.all([
+    getImageUrlMap(ids),
+    ids.length
+      ? Product.aggregate([
+          { $match: { categoryId: { $in: ids }, isActive: true } },
+          { $group: { _id: '$categoryId', count: { $sum: 1 } } },
+        ])
+      : Promise.resolve([]),
+    ids.length
+      ? Category.aggregate([
+          { $match: { parentId: { $in: ids } } },
+          { $group: { _id: '$parentId', count: { $sum: 1 } } },
+        ])
+      : Promise.resolve([]),
+  ]);
+
+  const productCountMap = new Map(
+    productCounts.map((r) => [String(r._id), r.count]),
+  );
+  const childCountMap = new Map(
+    childCounts.map((r) => [String(r._id), r.count]),
+  );
 
   return {
-    data: data.map((c) => format(c, imageMap.get(c._id.toString()) || '')),
+    data: data.map((c) => {
+      const id = c._id.toString();
+      return {
+        ...format(c, imageMap.get(id) || ''),
+        productCount: productCountMap.get(id) || 0,
+        childCount: childCountMap.get(id) || 0,
+      };
+    }),
     meta: buildMeta(total, page, limit),
   };
 };
@@ -155,7 +203,12 @@ const getById = async (id, { admin = false } = {}) => {
   const category = await Category.findById(id).lean();
   if (!category) throw new AppError('Category not found', 404);
   if (!admin && !category.isActive) throw new AppError('Category not found', 404);
-  return await formatOne(category);
+  const [formatted, productCount, childCount] = await Promise.all([
+    formatOne(category),
+    Product.countDocuments({ categoryId: category._id, isActive: true }),
+    Category.countDocuments({ parentId: category._id }),
+  ]);
+  return { ...formatted, productCount, childCount };
 };
 
 /**

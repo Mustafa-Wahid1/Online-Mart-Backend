@@ -16,6 +16,7 @@ const T = {
   orderCancelled: require('./templates/orderCancelled'),
   refundPending: require('./templates/refundPending'),
   refunded: require('./templates/refunded'),
+  returnRefunded: require('./templates/returnRefunded'),
   readyForPickup: require('./templates/readyForPickup'),
   delivered: require('./templates/delivered'),
   backInStock: require('./templates/wishlistBackInStock'),
@@ -153,6 +154,13 @@ const refunded = async (order) => {
   await deliver(user, 'REFUNDED', idStr(order), 'REFUNDED', T.refunded({ name: user.name, order }));
 };
 
+/** Return completed and refunded. */
+const returnRefunded = async (ret) => {
+  const user = await customerFor(ret.userId, 'RETURN_REFUNDED');
+  if (!user) return;
+  await deliver(user, 'RETURN_REFUNDED', idStr(ret), 'REFUNDED', T.returnRefunded({ name: user.name, ret }));
+};
+
 /** E8 / E9 — only READY_FOR_PICKUP (pickup orders) and DELIVERED are emailed. */
 const orderStatus = async (order, status) => {
   if (status === 'READY_FOR_PICKUP' && order.deliveryType === 'PICKUP') {
@@ -239,6 +247,7 @@ module.exports = {
   paymentExpired,
   orderCancelled,
   refunded,
+  returnRefunded,
   orderStatus,
   wishlistBackInStock,
   adminNewOrder,

@@ -6,6 +6,7 @@ const env = require('../config/env');
 const emailService = require('../infrastructure/email/email.service');
 const logger = require('../utils/logger');
 const { parsePagination, buildMeta } = require('../utils/pagination');
+const { onContactMessage, onContactReplied } = require('./notification.triggers');
 
 /**
  * Create a contact message and notify admin by email.
@@ -30,6 +31,9 @@ const createContact = async (payload) => {
     message,
     status: 'NEW',
   });
+
+  // In-app notification for admins (never throws)
+  await onContactMessage(doc);
 
   const adminTo = env.ADMIN_EMAIL || env.MAIL_FROM_EMAIL;
   if (adminTo) {
@@ -210,6 +214,9 @@ const sendReply = async (id, replyMessage) => {
   doc.status = 'REPLIED';
   doc.repliedAt = new Date();
   await doc.save();
+
+  // In-app notification for the customer (never throws)
+  await onContactReplied(doc);
 
   return {
     ...formatContact(doc),

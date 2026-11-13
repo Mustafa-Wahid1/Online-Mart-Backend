@@ -57,6 +57,8 @@ adminRouter.get(
   returnController.listAdmin
 );
 
+adminRouter.get('/status-counts', returnController.statusCounts);
+
 adminRouter.get(
   '/:id',
   [param('id').isMongoId().withMessage('Invalid return id')],

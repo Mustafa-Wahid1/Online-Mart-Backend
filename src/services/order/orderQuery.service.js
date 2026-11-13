@@ -85,6 +85,29 @@ const listAdmin = async (query = {}) => {
   };
 };
 
+const ORDER_STATUSES = [
+  'PENDING',
+  'CONFIRMED',
+  'PROCESSING',
+  'READY_FOR_PICKUP',
+  'READY_FOR_DELIVERY',
+  'DELIVERED',
+  'CANCELLED',
+  'REFUND_PENDING',
+];
+
+/**
+ * Admin: number of orders per status (one query, used by the dashboard pipeline).
+ */
+const statusCounts = async () => {
+  const rows = await Order.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
+  const counts = Object.fromEntries(ORDER_STATUSES.map((s) => [s, 0]));
+  for (const r of rows) {
+    if (r._id in counts) counts[r._id] = r.count;
+  }
+  return counts;
+};
+
 /**
  * Admin order detail.
  */
@@ -142,6 +165,7 @@ module.exports = {
   listMine,
   getMineById,
   listAdmin,
+  statusCounts,
   getAdminById,
   trackByNumberAndEmail,
 };

@@ -75,6 +75,11 @@ const returnSchema = new mongoose.Schema(
       default: '',
       maxlength: 2000,
     },
+    /** Filled when the return is completed and the customer is refunded. */
+    refundAmount: { type: Number, default: null, min: 0 },
+    refundedAt: { type: Date, default: null },
+    refundId: { type: String, default: null },
+    restocked: { type: Boolean, default: false },
   },
   {
     timestamps: true,

@@ -48,6 +48,15 @@ const listAdmin = async (req, res, next) => {
   }
 };
 
+const statusCounts = async (req, res, next) => {
+  try {
+    const data = await returnService.statusCounts();
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const getAdminById = async (req, res, next) => {
   try {
     const data = await returnService.getAdminById(req.params.id);
@@ -76,6 +85,7 @@ module.exports = {
   listMine,
   getMineById,
   listAdmin,
+  statusCounts,
   getAdminById,
   updateStatus,
 };

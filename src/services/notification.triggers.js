@@ -295,6 +295,106 @@ const onAddressChanged = safe('onAddressChanged', async (userId, address, action
 });
 
 /* ------------------------------------------------------------------ */
+/* Returns                                                            */
+/* ------------------------------------------------------------------ */
+
+const RETURN_STATUS_COPY = {
+  APPROVED: ['Return approved', (n) => `Your return request for order ${n} has been approved.`],
+  REJECTED: ['Return rejected', (n) => `Your return request for order ${n} was rejected.`],
+  COMPLETED: ['Return completed', (n) => `Your return for order ${n} has been completed.`],
+};
+
+const returnData = (ret, extra = {}) => ({
+  returnId: str(ret),
+  orderId: str(ret.orderId),
+  orderNumber: ret.orderNumber,
+  status: ret.status,
+  ...extra,
+});
+
+/** Customer submitted a return request -> admins. */
+const onReturnRequested = safe('onReturnRequested', async (ret) => {
+  const name = await customerName(ret.userId);
+  const count = (ret.items || []).length;
+  await notify({
+    role: 'ADMIN',
+    type: 'ADMIN_RETURN_REQUESTED',
+    title: 'New return request',
+    message: `${name} requested a return for order ${ret.orderNumber} (${count} item${count === 1 ? '' : 's'}).`,
+    data: returnData(ret, { status: 'PENDING' }),
+    dedupeKey: `admin-return-requested:${str(ret)}`,
+  });
+});
+
+/** Admin changed a return status -> customer. Skips unchanged / PENDING. */
+const onReturnStatusChanged = safe('onReturnStatusChanged', async (ret, prevStatus) => {
+  if (ret.status === prevStatus) return;
+  const copy = RETURN_STATUS_COPY[ret.status];
+  if (!copy) return;
+
+  let message = copy[1](ret.orderNumber);
+  const refunded = ret.status === 'COMPLETED' && Number(ret.refundAmount) > 0;
+  if (refunded) {
+    message = `Your return for order ${ret.orderNumber} is complete. A refund of ${money(ret.refundAmount)} has been issued to your original payment method.`;
+    mail(() => emailEvents.returnRefunded(ret));
+  }
+  const notes = String(ret.adminNotes || '').trim();
+  if (ret.status === 'REJECTED' && notes) message += ` Reason: ${notes.slice(0, 300)}`;
+
+  const stamp = ret.updatedAt ? new Date(ret.updatedAt).getTime() : Date.now();
+  await notify({
+    userId: ret.userId,
+    type: 'RETURN_STATUS',
+    title: refunded ? 'Return refunded' : copy[0],
+    message,
+    data: returnData(ret, refunded ? { refundAmount: String(ret.refundAmount) } : {}),
+    dedupeKey: `return-status:${str(ret)}:${ret.status}:${stamp}`,
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Contact messages                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Customer sent a contact message -> admins. */
+const onContactMessage = safe('onContactMessage', async (contact) => {
+  await notify({
+    role: 'ADMIN',
+    type: 'ADMIN_CONTACT_MESSAGE',
+    title: 'New contact message',
+    message: `${contact.name}: ${String(contact.subject).slice(0, 150)}`,
+    data: { contactId: str(contact), status: 'NEW' },
+    dedupeKey: `admin-contact-message:${str(contact)}`,
+  });
+});
+
+/**
+ * Admin replied (email sent) -> customer.
+ * Contact form is public, so we match the sender to an account by email;
+ * guests without an account only get the email.
+ */
+const onContactReplied = safe('onContactReplied', async (contact) => {
+  const user = await User.findOne({
+    email: String(contact.email || '').toLowerCase(),
+    role: 'CUSTOMER',
+    isActive: true,
+  })
+    .select('_id')
+    .lean();
+  if (!user) return;
+
+  const stamp = contact.repliedAt ? new Date(contact.repliedAt).getTime() : Date.now();
+  await notify({
+    userId: user._id,
+    type: 'CONTACT_REPLIED',
+    title: 'We replied to your message',
+    message: `Our reply to "${String(contact.subject).slice(0, 120)}" has been sent to your email.`,
+    data: { contactId: str(contact), status: 'REPLIED' },
+    dedupeKey: `contact-replied:${str(contact)}:${stamp}`,
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* System errors (A6)                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -473,4 +573,8 @@ module.exports = {
   onProfileUpdated,
   onAddressChanged,
   onProcessingError,
+  onReturnRequested,
+  onReturnStatusChanged,
+  onContactMessage,
+  onContactReplied,
 };

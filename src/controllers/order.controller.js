@@ -61,6 +61,15 @@ const listAdmin = async (req, res, next) => {
   }
 };
 
+const statusCounts = async (req, res, next) => {
+  try {
+    const data = await orderQuery.statusCounts();
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const getAdminById = async (req, res, next) => {
   try {
     const data = await orderQuery.getAdminById(req.params.id);
@@ -109,6 +118,7 @@ module.exports = {
   getMineById,
   cancelMine,
   listAdmin,
+  statusCounts,
   getAdminById,
   updateStatus,
   cancelAdmin,

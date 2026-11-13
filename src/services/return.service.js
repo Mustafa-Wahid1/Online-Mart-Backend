@@ -6,6 +6,8 @@ const AppError = require('../utils/AppError');
 const { toString: moneyToString } = require('../utils/money');
 const { parsePagination, buildMeta } = require('../utils/pagination');
 const User = require('../models/User.model');
+const { onReturnRequested, onReturnStatusChanged } = require('./notification.triggers');
+const { completeReturn } = require('./payment/returnRefund.service');
 
 /** Return window in days after delivery. */
 const RETURN_WINDOW_DAYS = 14;
@@ -40,6 +42,9 @@ function formatReturn(doc) {
     images: o.images || [],
     status: o.status,
     adminNotes: o.adminNotes || '',
+    refundAmount: o.refundAmount != null ? moneyToString(o.refundAmount) : null,
+    refundedAt: o.refundedAt || null,
+    restocked: Boolean(o.restocked),
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
   };
@@ -159,6 +164,9 @@ const createReturn = async (userId, payload) => {
     status: 'PENDING',
   });
 
+  // Notify admins (never throws)
+  await onReturnRequested(doc);
+
   return formatReturn(doc);
 };
 
@@ -245,6 +253,18 @@ const listAdmin = async (query = {}) => {
 };
 
 /**
+ * Admin: number of return requests per status (dashboard).
+ */
+const statusCounts = async () => {
+  const rows = await ReturnRequest.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
+  const counts = { PENDING: 0, APPROVED: 0, REJECTED: 0, COMPLETED: 0 };
+  for (const r of rows) {
+    if (r._id in counts) counts[r._id] = r.count;
+  }
+  return counts;
+};
+
+/**
  * Admin: get a single return by id.
  */
 const getAdminById = async (id) => {
@@ -273,11 +293,28 @@ const updateStatus = async (id, status, adminNotes) => {
     }
   }
 
+  const prevStatus = doc.status;
+
+  if (prevStatus === 'COMPLETED' && status !== 'COMPLETED') {
+    throw new AppError('A completed return cannot be changed', 400, 'RETURN_COMPLETED');
+  }
+
+  // Completing a return refunds the customer, restocks items and updates stats (one transaction).
+  if (status === 'COMPLETED' && prevStatus !== 'COMPLETED') {
+    const completed = await completeReturn(id, adminNotes);
+    await onReturnStatusChanged(completed, prevStatus);
+    const customer = await User.findById(completed.userId).select('name email phone').lean();
+    return formatReturnAdmin(completed, customer);
+  }
+
   doc.status = status;
   if (adminNotes !== undefined) {
     doc.adminNotes = String(adminNotes || '').trim();
   }
   await doc.save();
+
+  // Notify the customer about the decision (never throws)
+  await onReturnStatusChanged(doc, prevStatus);
 
   const user = await User.findById(doc.userId).select('name email phone').lean();
   return formatReturnAdmin(doc, user);
@@ -289,6 +326,7 @@ module.exports = {
   listMine,
   getMineById,
   listAdmin,
+  statusCounts,
   getAdminById,
   updateStatus,
   REASON_LABELS,
